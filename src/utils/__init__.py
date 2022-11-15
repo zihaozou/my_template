@@ -9,4 +9,5 @@ from src.utils.utils import (
     log_hyperparameters,
     save_file,
     task_wrapper,
+    zip_source
 )

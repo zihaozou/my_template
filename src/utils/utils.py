@@ -12,6 +12,8 @@ from pytorch_lightning.utilities import rank_zero_only
 
 from src.utils import pylogger, rich_utils
 
+import zipfile
+from subprocess import check_output
 log = pylogger.get_pylogger(__name__)
 
 
@@ -168,6 +170,7 @@ def log_hyperparameters(object_dict: dict) -> None:
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
 
+    # get current working directory
     # send hparams to all loggers
     trainer.logger.log_hyperparams(hparams)
 
@@ -203,3 +206,14 @@ def close_loggers() -> None:
         if wandb.run:
             log.info("Closing wandb!")
             wandb.finish()
+
+def zip_source(root_dir,log_dir):
+    """Zips source code for reproducibility."""
+    log.info("Zipping source code...")
+
+    file_lst = list(filter(lambda p: p!='',check_output(["git", "-C", root_dir, "ls-files","--exclude-standard"]).decode("utf-8").splitlines()))
+
+    # zip source code
+    with zipfile.ZipFile(Path(log_dir,"source.zip"), "w") as zipf:
+        for file in file_lst:
+            zipf.write(file)

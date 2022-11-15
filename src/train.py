@@ -60,7 +60,8 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
     Returns:
         Tuple[dict, dict]: Dict with metrics and dict with all instantiated objects.
     """
-
+    # zip the source code and save it to the log dir
+    utils.zip_source(root,cfg.paths.output_dir)
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         pl.seed_everything(cfg.seed, workers=True)
