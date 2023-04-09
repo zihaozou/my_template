@@ -1,11 +1,14 @@
+import os
+import logging
 import pyrootutils
-
+import torch
 root = pyrootutils.setup_root(
     search_from=__file__,
-    indicator=[".git", "pyproject.toml"],
+    indicator=[".git"],
     pythonpath=True,
-    dotenv=True,
-)
+    dotenv=True
+).as_posix()
+
 
 # ------------------------------------------------------------------------------------ #
 # `pyrootutils.setup_root(...)` is an optional line at the top of each entry file
@@ -39,7 +42,10 @@ import hydra
 import pytorch_lightning as pl
 from omegaconf import DictConfig
 from pytorch_lightning import Callback, LightningDataModule, LightningModule, Trainer
-from pytorch_lightning.loggers import LightningLoggerBase
+from pytorch_lightning.loggers import Logger
+from whos_there.callback import NotificationCallback
+from whos_there.senders.slack import SlackSender
+from os.path import join
 
 from src import utils
 
@@ -61,7 +67,9 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
         Tuple[dict, dict]: Dict with metrics and dict with all instantiated objects.
     """
     # zip the source code and save it to the log dir
-    utils.zip_source(root,cfg.paths.output_dir)
+    if cfg.get('task_name') != 'debug':
+        utils.zip_source(root,cfg.paths.output_dir, cfg.get('task_name'))
+
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         pl.seed_everything(cfg.seed, workers=True)
@@ -70,13 +78,15 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
-
+    model: LightningModule = hydra.utils.instantiate(cfg.model,log_dir=cfg.paths.output_dir)
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = utils.instantiate_callbacks(cfg.get("callbacks"))
 
+    log.info("Instantiating Plugins...")
+    #plugins = utils.instantiate_plugins(cfg.get("plugins"))
+    #print(plugins)
     log.info("Instantiating loggers...")
-    logger: List[LightningLoggerBase] = utils.instantiate_loggers(cfg.get("logger"))
+    logger: List[Logger] = utils.instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
@@ -87,6 +97,7 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
         "model": model,
         "callbacks": callbacks,
         "logger": logger,
+        #"plugins": plugins,
         "trainer": trainer,
     }
 
@@ -117,7 +128,7 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.2", config_path=root / "configs", config_name="train.yaml")
+@hydra.main(version_base="1.3", config_path=join(root, "configs"), config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
 
     # train the model

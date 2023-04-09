@@ -7,13 +7,12 @@ from typing import Any, Callable, Dict, List
 import hydra
 from omegaconf import DictConfig
 from pytorch_lightning import Callback
-from pytorch_lightning.loggers import LightningLoggerBase
+from pytorch_lightning.loggers import Logger
 from pytorch_lightning.utilities import rank_zero_only
-
+from pathlib import Path
 from src.utils import pylogger, rich_utils
-
-import zipfile
-from subprocess import check_output
+import git
+import prettytable
 log = pylogger.get_pylogger(__name__)
 
 
@@ -110,10 +109,27 @@ def instantiate_callbacks(callbacks_cfg: DictConfig) -> List[Callback]:
 
     return callbacks
 
+def instantiate_plugins(plugins_cfg: DictConfig):
+    """Instantiates callbacks from config."""
+    plugins = []
 
-def instantiate_loggers(logger_cfg: DictConfig) -> List[LightningLoggerBase]:
+    if not plugins_cfg:
+        log.warning("Plugins config is empty.")
+        return plugins
+
+    if not isinstance(plugins_cfg, DictConfig):
+        raise TypeError("Callbacks config must be a DictConfig!")
+
+    for _, pg_conf in plugins_cfg.items():
+        if isinstance(pg_conf, DictConfig) and "_target_" in pg_conf:
+            log.info(f"Instantiating callback <{pg_conf._target_}>")
+            plugins.append(hydra.utils.instantiate(pg_conf))
+
+    return plugins
+
+def instantiate_loggers(logger_cfg: DictConfig) -> List[Logger]:
     """Instantiates loggers from config."""
-    logger: List[LightningLoggerBase] = []
+    logger: List[Logger] = []
 
     if not logger_cfg:
         log.warning("Logger config is empty.")
@@ -207,13 +223,30 @@ def close_loggers() -> None:
             log.info("Closing wandb!")
             wandb.finish()
 
-def zip_source(root_dir,log_dir):
+def zip_source(root_dir,log_dir,task_name):
     """Zips source code for reproducibility."""
-    log.info("Zipping source code...")
+    log.info("Checking the Repository and zipping source code...")
+    repo = git.Repo(root_dir)
+    if repo.is_dirty():
+        untracked_files = repo.untracked_files
+        unstaged_files = [item.a_path for item in repo.index.diff("HEAD")]
+        changed_file_table = prettytable.PrettyTable()
+        changed_file_table.field_names = ["Changed Files", "Status"]
+        for file in unstaged_files:
+            changed_file_table.add_row([file, "Unstaged"])
+        for file in untracked_files:
+            changed_file_table.add_row([file, "Untracked"])
+        log.error("Repository is dirty! Please commit all changes before running the experiment. If you are debugging and don't want to commit changes, please set 'debug=default' in the config file.")
+        log.error("Changed Files:")
+        log.error(changed_file_table)
+        raise Exception("Repository is dirty! Please commit all changes before running the experiment. If you are debugging and don't want to commit changes, please set 'debug=default' in the config file.")
+    log.info("Repository is clean, creating tag...")
+    repo.create_tag(task_name, message=f"Tagging the commit for {task_name}", force=True)
 
-    file_lst = list(filter(lambda p: p!='',check_output(["git", "-C", root_dir, "ls-files","--exclude-standard"]).decode("utf-8").splitlines()))
+    with open(Path(log_dir) / "source_code.zip", "wb") as f:
+        log.info("Zipping source code...")
+        repo.archive(f, format="zip")
 
-    # zip source code
-    with zipfile.ZipFile(Path(log_dir,"source.zip"), "w") as zipf:
-        for file in file_lst:
-            zipf.write(file)
+    log.info("Zipping source code completed.")
+
+    return
