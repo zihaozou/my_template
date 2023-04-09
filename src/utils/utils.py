@@ -228,15 +228,11 @@ def zip_source(root_dir,log_dir,task_name):
     log.info("Checking the Repository and zipping source code...")
     repo = git.Repo(root_dir)
     if repo.is_dirty():
-        untracked_files = repo.untracked_files
-        unstaged_files = [item.a_path for item in repo.index.diff("HEAD")]
+        unstaged_files = repo.index.diff(None)
         changed_file_table = prettytable.PrettyTable()
-        changed_file_table.field_names = ["Changed Files", "Status"]
+        changed_file_table.field_names = ["File Path", "New File?", "New Path", "Change Type"]
         for file in unstaged_files:
-            changed_file_table.add_row([file, "Unstaged"])
-        for file in untracked_files:
-            changed_file_table.add_row([file, "Untracked"])
-        log.error("Repository is dirty! Please commit all changes before running the experiment. If you are debugging and don't want to commit changes, please set 'debug=default' in the config file.")
+            changed_file_table.add_row([file.a_path, file.new_file, file.b_path, file.change_type])
         log.error("Changed Files:")
         log.error('\n'+str(changed_file_table))
         raise Exception("Repository is dirty! Please commit all changes before running the experiment. If you are debugging and don't want to commit changes, please set 'debug=default' in the config file.")
