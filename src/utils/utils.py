@@ -238,7 +238,7 @@ def zip_source(root_dir,log_dir,task_name):
             changed_file_table.add_row([file, "Untracked"])
         log.error("Repository is dirty! Please commit all changes before running the experiment. If you are debugging and don't want to commit changes, please set 'debug=default' in the config file.")
         log.error("Changed Files:")
-        log.error(changed_file_table)
+        log.error('\n'+str(changed_file_table))
         raise Exception("Repository is dirty! Please commit all changes before running the experiment. If you are debugging and don't want to commit changes, please set 'debug=default' in the config file.")
     log.info("Repository is clean, creating tag...")
     repo.create_tag(task_name, message=f"Tagging the commit for {task_name}", force=True)
