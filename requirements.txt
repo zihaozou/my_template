@@ -10,7 +10,7 @@ hydra-colorlog>=1.2.0
 hydra-optuna-sweeper>=1.2.0
 
 # --------- loggers --------- #
-# wandb
+wandb
 # neptune-client
 # mlflow
 # comet-ml
@@ -20,15 +20,11 @@ pyrootutils     # standardizing the project root setup
 pre-commit      # hooks for applying linters on commit
 rich            # beautiful text formatting in terminal
 pytest          # tests
-# sh            # for running bash commands in some tests (linux/macos only)
 h5py
 einops
 ipykernel
 jupyter
 notebook
-# -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-1.13.1_cu117.html
-# kaolin
-# open3d
 natsort
 tensorboard
 scikit-image
