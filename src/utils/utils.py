@@ -2,21 +2,46 @@ import time
 import warnings
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Callable, List, MutableMapping, MutableSequence, Union
+from typing import Any, Callable, Dict, List, MutableMapping, MutableSequence, Union
 import hydra
-from hydra.utils import get_class, get_method, get_object, get_original_cwd
+from hydra.utils import instantiate, get_class, get_method, get_object, get_original_cwd
 from hydra.experimental.callbacks import Callback
 from omegaconf._utils import is_primitive_type_annotation
 from omegaconf import DictConfig, OmegaConf, ListConfig, open_dict
+from hydra.experimental.callbacks import Callback as HydraCallback
 from hydra.core.hydra_config import HydraConfig
 from pytorch_lightning import Callback
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import Logger
 from pytorch_lightning.utilities import rank_zero_only
+from torch.distributed.fsdp import BackwardPrefetch
 from pathlib import Path
 from src.utils import pylogger, rich_utils
 import git
 import prettytable
+
+
+class GitCheck(HydraCallback):
+    def on_run_start(self, config: DictConfig, **kwargs: Any) -> None:
+        current_git_version = git.Repo(".").head.object.hexsha
+        cfg_git_version = config.get("git_version")
+        if not cfg_git_version:
+            log.info("Git version not found in config, skipping git version check...")
+        else:
+            if (
+                cfg_git_version != current_git_version
+                and config.get("task_name") != "debug"
+            ):
+                raise Exception(
+                    f"Git version mismatch! <cfg.git_version={cfg_git_version}>\n<current_git_version={current_git_version}>\n"
+                    "Please checkout the correct git version!\n"
+                    "To checkout the correct git version, please run the following command:\n"
+                    f"git checkout {cfg_git_version}\n"
+                    "If you are debugging and don't want to checkout the correct git version, please set 'debug=default' in the config file.\n"
+                )
+        with open_dict(config):
+            config.git_version = current_git_version
+
 
 OmegaConf.register_new_resolver("_get_class_", get_class)
 OmegaConf.register_new_resolver("_get_method_", get_method)
@@ -44,32 +69,6 @@ def no_debug(fn):
     return wrapper
 
 
-@no_debug
-@rank_zero_only
-def check_git_version(cfg) -> None:
-    """Checks if the git version is correct."""
-    # save git version to current folder
-    current_git_version = git.Repo(get_original_cwd()).head.object.hexsha
-    cfg_git_version = cfg.get("git_version")
-    if not cfg_git_version:
-        log.info("Git version not found in config, skipping git version check...")
-    else:
-        log.info(
-            "Git version found in config, checking if it matches the current git version..."
-        )
-        if cfg_git_version != current_git_version:
-            raise Exception(
-                f"Git version mismatch! <cfg.git_version={cfg_git_version}>\n<current_git_version={current_git_version}>\n"
-                "Please checkout the correct git version!"
-            )
-    output_path = HydraConfig.get().run.dir
-    OmegaConf.load(Path(output_path) / ".hydra" / "config.yaml")
-    with open_dict(cfg):
-        cfg.git_version = current_git_version
-    OmegaConf.save(cfg, Path(output_path) / ".hydra" / "config.yaml")
-    log.info("Git version check passed!")
-
-
 def task_wrapper(task_func: Callable) -> Callable:
     """Optional decorator that wraps the task function in extra utilities.
 
@@ -87,11 +86,6 @@ def task_wrapper(task_func: Callable) -> Callable:
         set_debug_state(cfg.get("task_name") == "debug")
         # apply extra utilities
         extras(cfg)
-        # # convert config first
-        # log.info("Converting config...")
-        # cfg = convert_config(cfg)
-        # check git version
-        check_git_version(cfg)
         # execute the task
         try:
             start_time = time.time()
@@ -208,54 +202,6 @@ def instantiate_loggers(logger_cfg: DictConfig) -> List[Logger]:
             logger.append(hydra.utils.instantiate(lg_conf))
 
     return logger
-
-
-def convert_config(
-    config: Union[MutableMapping, MutableSequence]
-) -> Union[MutableMapping, MutableSequence]:
-    """
-    helper function to convert every class, method, object in the config to the actual class, method, object
-    """
-    if isinstance(config, MutableMapping):
-        keys = list(config.keys())
-        if len(keys) == 1:
-            key = keys[0]
-            if key == "_get_class_":
-                class_path = config[key]
-                if not isinstance(class_path, str):
-                    raise TypeError("class path must be a string!")
-                class_ = get_class(config[key])
-                return class_
-            elif key == "_get_method_":
-                method_path = config[key]
-                if not isinstance(method_path, str):
-                    raise TypeError("method path must be a string!")
-                method_ = get_method(config[key])
-                return method_
-            elif key == "_get_object_":
-                object_path = config[key]
-                if not isinstance(object_path, str):
-                    raise TypeError("object path must be a string!")
-                object_ = get_object(config[key])
-                return object_
-        for key in keys:
-            if isinstance(config[key], (MutableMapping, MutableSequence)):
-                ret_obj = convert_config(config[key])
-                if not is_primitive_type_annotation(ret_obj) and isinstance(
-                    config, DictConfig
-                ):
-                    config._set_flag("allow_objects", True)
-                config[key] = ret_obj
-    elif isinstance(config, MutableSequence):
-        for idx in range(len(config)):
-            if isinstance(config[idx], (MutableMapping, MutableSequence)):
-                ret_obj = convert_config(config[idx])
-                if not is_primitive_type_annotation(ret_obj) and isinstance(
-                    config, ListConfig
-                ):
-                    config._set_flag("allow_objects", True)
-                config[idx] = ret_obj
-    return config
 
 
 @rank_zero_only

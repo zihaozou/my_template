@@ -5,7 +5,6 @@ from src.utils.utils import (
     extras,
     get_metric_value,
     instantiate_callbacks,
-    convert_config,
     instantiate_loggers,
     log_hyperparameters,
     save_file,
@@ -13,4 +12,5 @@ from src.utils.utils import (
     zip_source,
     no_debug,
     set_debug_state,
+    GitCheck,
 )
