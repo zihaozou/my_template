@@ -1,4 +1,7 @@
 import torch
+
+torch.multiprocessing.set_sharing_strategy("file_system")
+import torch.utils.data as data
 import lmdb
 import pickle
 from functools import reduce
@@ -109,6 +112,35 @@ class LMDBDatabase:
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.path}, {len(self)})"
+
+
+class MetaHandler(type):
+    def __new__(cls, name, bases, attrs):
+        new_class = type.__new__(cls, name, bases, attrs)
+        super_class = super(new_class, new_class)
+        if hasattr(super_class, "__getitem_wrap__") and hasattr(
+            new_class, "__getitem__"
+        ):
+            super_getitem_wrap = getattr(super_class, "__getitem_wrap__")
+            sub_getitem = getattr(new_class, "__getitem__")
+
+            def __new_getitem__(self, *args, **kwargs):
+                return super_getitem_wrap(self, sub_getitem, *args, **kwargs)
+
+            setattr(new_class, "__getitem__", __new_getitem__)
+        return new_class
+
+
+class CacheDataset(data.Dataset, metaclass=MetaHandler):
+    def __init__(self):
+        super().__init__()
+        self.manager = mp.Manager()
+        self.cache = self.manager.dict()
+
+    def __getitem_wrap__(self, func, idx):
+        data = self.cache.get(idx, func(self, idx))
+        self.cache[idx] = data
+        return data
 
 
 import unittest
